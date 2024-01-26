@@ -1,0 +1,110 @@
+The premise is that this script is just a controller. You insert your own functions and this script runs them in your specified order. It tracks progress even in between reboots.
+
+IMPORTANT HIGHLIGHTS:
+    1. Insert your functions in the '#region begin USER FUNCTIONS'.
+
+    2. Create an 'Action' name and insert the function to be called in the '$Steps = @()' control array.
+
+    3. Use the following 2 variables in you function logic to control pass/fail:
+        $Script:SetJSON.Tracking.ExitCode
+        $Script:SetJSON.Tracking.ProcessReboot
+
+    4. You must use the built-in 'Restart-Server' function to properly track between reboots. Don't let your software installs reboot the server.
+        If you call the 'Restart-Server' function, then the previous function must set the reboot preference or the script will halt:
+            	$Script:SetJSON.Tracking.ProcessReboot = "False" or
+                $Script:SetJSON.Tracking.ProcessReboot = "True"
+
+    5. Provide values for these to command line parameters at runtime for the script to auto-login and keep running.
+        -AutoLoginUser
+        -AutoLoginPassword
+
+    6. There is no actual built-in join domain function but if you provide the following 3 command line parameters at runtime, 
+        a $DomainCredentials object will be created that you can use in your own domain join function. If any of the 3 are left out, 
+        the credential object will be forced to $null.
+        -DomainUser
+        -DomainPassword
+        -Domain
+
+======================================================================================================================================
+======================================================================================================================================
+
+This tutorial script has 7 simulated functions to perform actions such as Windows update installs, Sophos install, etc.
+They don't actually do anything, they are there for you to learn how to control the flow of the steps using the pass/fail variables.
+
+Files Written to the hard drive are:
+	AutoScript_Tracking.json    : The script uses this to track its progress
+	AutoScript_Tracking_Log.txt : This the human readable log with step results and time stamps.
+	These are written to the same location as where the script was ran.
+
+There are two regions in the script that must remain as written.
+    #region begin MUST HAVE PROCESS LOOP
+    #region begin MUST HAVE FUNCTIONS
+
+The 3rd region, #region begin USER FUNCTIONS, is for user provided functions.
+
+The flow is controlled by the $Steps = @() array at the beginning of the script. All you have to do is give your action a name and the function to call. 
+
+	This is a sample of the control array that includes the built-in 'Restart-Server' function:
+    	$Steps = @(
+        	[ORDERED]@{'Action' = 'CheckUpdates'; 'Status' = 'NotStarted' ; 'TimeStamp' = '00/00/00' ; 'Function' = 'Get-PendingUpdates' }
+        	[ORDERED]@{'Action' = 'UpdatesReboot'; 'Status' = 'NotStarted' ; 'TimeStamp' = '00/00/00' ; 'Function' = 'Restart-Server' }
+        	)
+
+There are two variables that the script uses that needs to be used in your functions to control the flow.
+
+	You determine in your function what a success or failure is then set the $Script:SetJSON.Tracking.ExitCode.
+
+	$Script:SetJSON.Tracking.ExitCode = 0 : This tells the script to mark that step as completed and to continue processing
+    $Script:SetJSON.Tracking.ExitCode = 1 : This tells the script to mark that step as Failed/Exit and halts the script
+    $Script:SetJSON.Tracking.ExitCode = 2 : This tells the script to mark that step as Failed/Continued and to continue processing
+
+	Based on your function logic you can also skip reboots if the function determines it's unnecessary.
+
+	$Script:SetJSON.Tracking.ProcessReboot = "False"
+    $Script:SetJSON.Tracking.ProcessReboot = "True"
+
+So using the above sample array, here are some examples of how the 'Get-PendingUpdates' and 'Restart-Server' could flow based on your use of
+$Script:SetJSON.Tracking.ExitCode
+$Script:SetJSON.Tracking.ProcessReboot
+
+	1. 'Get-PendingUpdates' fails due to no communications with update server.
+	You could set the ExitCode to '$Script:SetJSON.Tracking.ExitCode = 1' for that result so the script halts so you can check the communication issue.
+	$Script:SetJSON.Tracking.ProcessReboot is not needed because the script will have quit.
+        
+	2. 'Get-PendingUpdates' fails due to any reason, but you don't consider it a hard stop.
+	You could set the ExitCode to '$Script:SetJSON.Tracking.ExitCode = 2' for that result so the rest of steps continue to process.
+	Because the 'Restart-Server' follows 'Get-PendingUpdates', you have to set $Script:SetJSON.Tracking.ProcessReboot.
+	You can set '$Script:SetJSON.Tracking.ProcessReboot = "False"' for this failure so the unneeded reboot isn't processed.
+
+	3. 'Get-PendingUpdates' performs as designed so you can set the two variables as such so the server reboots and continues processing steps.
+	$Script:SetJSON.Tracking.ExitCode = 0
+	$Script:SetJSON.Tracking.ProcessReboot = "True"
+
+If you call the built-in 'Restart-Server' function after one of yours, the following MUST be set or the script will halt.
+        $Script:SetJSON.Tracking.ProcessReboot = "False" or 
+        $Script:SetJSON.Tracking.ProcessReboot = "True"
+
+The script will not be able to track reboots if you reboot any other way than the built-in 'Restart-Server' function.
+
+Right before the reboot, an entry is made in the Windows System Event Log containing the reason for the reboot including the function name.
+After the reboot and when the script auto-runs, it will check the System event log and look for a match between the function that had 
+$Script:SetJSON.Tracking.ProcessReboot = "True" and what was written to the event log. If there is no match then the script halts.
+
+In order for the script to auto-run between reboots, you need to provide AutoLoginUser and AutoLoginPassword.
+	Start-AutoScript.ps1 -AutoLoginUser ".\rack" -AutoLoginPassword "**********"
+
+Without the credentials, the script will still embed itself in the RunOnce registry key and will continue when you manually login.
+
+There is also a built-in function to produce a $DomainCredentials object you can use for domain join functions. 
+Just supply the -DomainUser, -DomainPassword, and -Domain at runtime. If any are missing, $DomainCredentials will be forced to $null.
+
+	Start-AutoScript.ps1   -AutoLoginUser ".\rack" -AutoLoginPassword "********" -DomainUser 'custdomain\rackadm' -DomainPassword '******' -Domain 'custdomain.local'
+
+So, to see how this works just comment/uncomment the steps in the control array and play around with the exit codes/process reboots in the simulated functions in the script.
+
+Right now all the $Script:SetJSON.Tracking.ProcessReboot are set to "False" so you don't get any unindended reboots.
+
+If all steps complete successfully, the JSON tracking will mark script as complete and the script will not run again unless you delete the AutoScript_Tracking.json.
+
+======================================================================================================================================
+======================================================================================================================================
