@@ -2,7 +2,6 @@
 Name              : Start-AutoSophosUninstall
 Version           : v1.0.0.0, 01/15/2021
 Author            : JD Alberthal
-CompanyName       : Rackspace Inc
 
 .SYNOPSIS
 Script to force uninstall Sophos
